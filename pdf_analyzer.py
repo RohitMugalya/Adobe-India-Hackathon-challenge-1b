@@ -72,20 +72,20 @@ When analyzing documents:
 Respond in a structured, professional manner that demonstrates your expertise in your role."""
     
     def get_section_titles(self, pdf_text: Dict[str, str], filename: str, persona: str, task: str) -> List[str]:
-        """Get section titles from the document"""
+        """Get section titles from the document by analyzing the full PDF content"""
         system_prompt = self.create_system_prompt(persona, task)
         full_text = "\n\n".join([f"Page {page}: {text}" for page, text in pdf_text.items()])
         
-        prompt = f"""Document: {filename}
+        prompt = f"""Read entire document: {filename}
 
-{full_text[:4000]}
+{full_text[:6000]}
 
-Task: {persona} planning "{task}"
+As {persona} for "{task}", find actual section headings/titles from this PDF content.
 
-Find 3 important section titles. Respond with only the direct titles. No explanations, no complete sentences, no introductory phrases. No "Here is..." or "The titles are...". Just the section names, one per line:"""
+Look for real section titles, chapter names, or topic headings that exist in the document. Output only actual titles found, one per line:"""
 
-        # Limit to 30 tokens for section titles (increased to avoid truncation)
-        response = self.call_ollama(prompt, system_prompt, max_tokens=30)
+        # Increased to 50 tokens for better section titles
+        response = self.call_ollama(prompt, system_prompt, max_tokens=50)
         
         # Parse response into list of titles
         titles = [title.strip() for title in response.split('\n') if title.strip()]
@@ -181,8 +181,8 @@ Is this page useful? Respond with only YES or NO:"""
         with self.print_lock:
             print(message)
     
-    def process_single_document(self, doc_info: Dict, pdf_dir: str, persona: str, task: str) -> Tuple[List[Dict], List[Dict]]:
-        """Process a single PDF document - designed for parallel execution"""
+    def process_single_document_optimized(self, doc_info: Dict, pdf_dir: str, persona: str, task: str, doc_ranking: Dict[str, int]) -> Tuple[List[Dict], List[Dict]]:
+        """Process a single PDF document with optimizations and proper ranking"""
         filename = doc_info["filename"]
         pdf_path = os.path.join(pdf_dir, filename)
         
@@ -198,21 +198,119 @@ Is this page useful? Respond with only YES or NO:"""
             self.safe_print(f"No text extracted from {filename}")
             return [], []
         
-        # Analyze sections and subsections in parallel
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            # Submit both analysis tasks
-            sections_future = executor.submit(self.analyze_document_sections, pdf_text, filename, persona, task)
-            subsections_future = executor.submit(self.analyze_subsections, pdf_text, filename, persona, task)
-            
-            # Get results
-            sections = sections_future.result()
-            subsections = subsections_future.result()
+        # Get document importance rank (should be 1-7 for Collection 1)
+        doc_importance = doc_ranking.get(filename, len(doc_ranking) + 1)
         
-        self.safe_print(f"✓ Completed: {filename} ({len(sections)} sections, {len(subsections)} subsections)")
+        # SPEED OPTIMIZATION: Process only first few pages for less important docs
+        if doc_importance > 3:  # For lower priority docs, process only first 3 pages
+            pdf_text = {k: v for k, v in list(pdf_text.items())[:3]}
+        
+        # Get section titles with better analysis
+        section_titles = self.get_section_titles(pdf_text, filename, persona, task)
+        
+        # Build sections with DOCUMENT-LEVEL importance ranking
+        sections = []
+        for local_rank, title in enumerate(section_titles, 1):
+            page_num = self.get_section_page_number(pdf_text, title, filename)
+            
+            # FIXED: Use document importance rank directly (1-7 for Collection 1)
+            # Each document gets its rank, sections within document don't affect overall ranking
+            sections.append({
+                "document": filename,
+                "section_title": title,
+                "importance_rank": doc_importance,  # Use document rank directly
+                "page_number": page_num
+            })
+        
+        # SPEED OPTIMIZATION: Process subsections only for top 3 documents
+        subsections = []
+        if doc_importance <= 3:
+            subsections = self.analyze_subsections_optimized(pdf_text, filename, persona, task)
+        
+        self.safe_print(f"✓ Completed: {filename} (rank:{doc_importance}, {len(sections)} sections, {len(subsections)} subsections)")
         return sections, subsections
     
+    def analyze_subsections_optimized(self, pdf_text: Dict[str, str], filename: str, persona: str, task: str) -> List[Dict]:
+        """Optimized subsection analysis - process only relevant pages"""
+        subsections = []
+        
+        # SPEED OPTIMIZATION: Batch relevance check for multiple pages
+        relevant_pages = []
+        page_texts = list(pdf_text.items())
+        
+        # Process pages in batches to reduce AI calls
+        for page_num, text in page_texts[:5]:  # Limit to first 5 pages for speed
+            if len(text) < 100:
+                continue
+            
+            # Quick relevance check
+            if self.is_page_relevant(text, filename, page_num, persona, task):
+                relevant_pages.append((page_num, text))
+        
+        # Extract content from relevant pages only
+        for page_num, text in relevant_pages[:3]:  # Limit to top 3 relevant pages
+            refined_content = self.get_relevant_content_from_page(text, filename, page_num, persona, task)
+            
+            if refined_content:
+                subsections.append({
+                    "document": filename,
+                    "refined_text": refined_content,
+                    "page_number": page_num
+                })
+        
+        return subsections
+    
+    def rank_documents_by_importance(self, documents: List[Dict], persona: str, task: str) -> Dict[str, int]:
+        """Rank all documents in collection by importance for the task"""
+        system_prompt = self.create_system_prompt(persona, task)
+        
+        # Create list of document names
+        doc_names = [doc["filename"] for doc in documents]
+        doc_list = "\n".join([f"{i+1}. {name}" for i, name in enumerate(doc_names)])
+        
+        prompt = f"""Documents in collection:
+{doc_list}
+
+Task: {persona} needs "{task}"
+
+Rank these documents by importance for this task. Output only the document numbers in order of importance (most important first):
+
+Example: 3 1 5 2 4"""
+
+        # Limit tokens for ranking response
+        response = self.call_ollama(prompt, system_prompt, max_tokens=30)
+        
+        # Parse ranking response and create proper ranking
+        ranking = {}
+        try:
+            # Extract numbers from response
+            numbers = [int(x.strip()) for x in response.split() if x.strip().isdigit()]
+            
+            # Assign ranks based on order in response
+            for rank, doc_index in enumerate(numbers, 1):
+                if 1 <= doc_index <= len(doc_names):
+                    filename = doc_names[doc_index - 1]
+                    ranking[filename] = rank
+            
+            # Fill in any missing documents with sequential ranks
+            used_ranks = set(ranking.values())
+            next_rank = max(used_ranks) + 1 if used_ranks else 1
+            
+            for doc in documents:
+                if doc["filename"] not in ranking:
+                    ranking[doc["filename"]] = next_rank
+                    next_rank += 1
+                    
+        except Exception as e:
+            print(f"Warning: Document ranking failed ({e}), using sequential fallback")
+            # Fallback: assign sequential ranks
+            for i, doc in enumerate(documents):
+                ranking[doc["filename"]] = i + 1
+        
+        return ranking
+
     def process_collection(self, collection_path: str) -> None:
-        """Process a single collection with parallel processing"""
+        """Process a single collection with optimized parallel processing and unique ranking"""
         print(f"\nProcessing collection: {collection_path}")
         
         # Read input configuration
@@ -239,14 +337,18 @@ Is this page useful? Respond with only YES or NO:"""
             print(f"PDF directory not found: {pdf_dir}")
             return
         
+        # OPTIMIZATION 1: Get document ranking first (single AI call)
+        print("🔄 Ranking documents by importance...")
+        doc_ranking = self.rank_documents_by_importance(documents, persona, task)
+        
         all_extracted_sections = []
         all_subsection_analysis = []
         
-        # Process documents in parallel
+        # OPTIMIZATION 2: Process only most relevant pages per document
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             # Submit all document processing tasks
             future_to_doc = {
-                executor.submit(self.process_single_document, doc_info, pdf_dir, persona, task): doc_info
+                executor.submit(self.process_single_document_optimized, doc_info, pdf_dir, persona, task, doc_ranking): doc_info
                 for doc_info in documents
             }
             
@@ -260,7 +362,7 @@ Is this page useful? Respond with only YES or NO:"""
                 except Exception as e:
                     self.safe_print(f"Error processing {doc_info['filename']}: {e}")
         
-        # Sort sections by importance rank
+        # Sort sections by unique importance rank
         all_extracted_sections.sort(key=lambda x: x.get("importance_rank", 999))
         
         # Create output JSON
@@ -285,9 +387,12 @@ Is this page useful? Respond with only YES or NO:"""
         print(f"✓ Extracted {len(all_extracted_sections)} sections and {len(all_subsection_analysis)} subsections")
 
 def main():
+    # START TIMING - Total execution time from command start
+    total_start_time = datetime.now()
+    
     # Parse command line arguments
     parser = argparse.ArgumentParser(
-        description="PDF Analysis Tool using Ollama with gemma3:1b model",
+        description="PDF Analysis Tool using Ollama with smollm:135m model",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -326,10 +431,13 @@ Examples:
                 print(f"  - {collection}")
         return
     
+    print(f"🚀 Starting PDF analysis for {args.collection}...")
+    
     # Initialize analyzer with specified parameters
     analyzer = PDFAnalyzer(model_name=args.model, max_workers=args.workers)
     
     # Check if Ollama is running and model is available
+    print("🔍 Checking Ollama connection...")
     try:
         # Test connection and model availability
         analyzer.client.generate(
@@ -352,12 +460,17 @@ Examples:
         return
     
     # Process the specified collection
-    start_time = datetime.now()
     analyzer.process_collection(args.collection)
-    end_time = datetime.now()
     
-    processing_time = (end_time - start_time).total_seconds()
-    print(f"\n🚀 Total processing time: {processing_time:.2f} seconds")
+    # END TIMING - Calculate total execution time
+    total_end_time = datetime.now()
+    total_execution_time = (total_end_time - total_start_time).total_seconds()
+    
+    print(f"\n🎉 Analysis completed!")
+    print(f"⏱️  Total execution time: {total_execution_time:.2f} seconds")
+    print(f"📁 Collection: {args.collection}")
+    print(f"🤖 Model: {args.model}")
+    print(f"⚡ Workers: {args.workers}")
 
 if __name__ == "__main__":
     main()
