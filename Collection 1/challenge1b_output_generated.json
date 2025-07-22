@@ -1,0 +1,86 @@
+{
+    "metadata": {
+        "input_documents": [
+            "South of France - Cities.pdf",
+            "South of France - Cuisine.pdf",
+            "South of France - History.pdf",
+            "South of France - Restaurants and Hotels.pdf",
+            "South of France - Things to Do.pdf",
+            "South of France - Tips and Tricks.pdf",
+            "South of France - Traditions and Culture.pdf"
+        ],
+        "persona": "Travel Planner",
+        "job_to_be_done": "Plan a trip of 4 days for a group of 10 college friends.",
+        "processing_timestamp": "2025-07-22T18:11:40.438689",
+        "parallel_workers": 4
+    },
+    "extracted_sections": [
+        {
+            "document": "South of France - Cuisine.pdf",
+            "section_title": "I'd like to propose a travel itinerary for a group of 10 college friends who want to explore the South of France. Here's my",
+            "importance_rank": 1,
+            "page_number": 1
+        },
+        {
+            "document": "South of France - History.pdf",
+            "section_title": "You are an Travel Planner. Your specific task is to plan a trip of 4 days for a group of 10 college friends. You",
+            "importance_rank": 1,
+            "page_number": 1
+        },
+        {
+            "document": "South of France - Restaurants and Hotels.pdf",
+            "section_title": "You are an Travel Planner. Your specific task is to plan a trip of 4 days for a group of 10 college friends. You",
+            "importance_rank": 1,
+            "page_number": 1
+        },
+        {
+            "document": "South of France - Cities.pdf",
+            "section_title": "To plan a trip of 4 days for a group of 10 college friends, I would follow these steps:",
+            "importance_rank": 1,
+            "page_number": 1
+        },
+        {
+            "document": "South of France - Traditions and Culture.pdf",
+            "section_title": "I would recommend this itinerary for a group of 10 college friends:",
+            "importance_rank": 1,
+            "page_number": 1
+        },
+        {
+            "document": "South of France - Things to Do.pdf",
+            "section_title": "Document: South of France - Things to Do.pdf",
+            "importance_rank": 1,
+            "page_number": 1
+        },
+        {
+            "document": "South of France - Tips and Tricks.pdf",
+            "section_title": "I have a task list that includes all sections of a travel plan for a group of 10 college friends. This list should include:",
+            "importance_rank": 1,
+            "page_number": 1
+        },
+        {
+            "document": "South of France - Cities.pdf",
+            "section_title": "1. Identify the most",
+            "importance_rank": 2,
+            "page_number": 1
+        },
+        {
+            "document": "South of France - Traditions and Culture.pdf",
+            "section_title": "**Day 1: Arrival in Nice**",
+            "importance_rank": 2,
+            "page_number": 1
+        },
+        {
+            "document": "South of France - Things to Do.pdf",
+            "section_title": "Page 5: Coastal Adventures",
+            "importance_rank": 2,
+            "page_number": 1
+        }
+    ],
+    "subsection_analysis": [
+        {
+            "document": "South of France - Cities.pdf",
+            "refined_text": "Toulouse - Cities.pdf:\n\nToulouse, k nown as \"La Ville Rose\" due to its distinctive terracotta buildings, \nis a vibrant city with a rich history. It was an important center during the Roman period and later became a hub of the aerospace industry. Toulouse has been a center of l earning and culture for centuries, with numerous",
+            "page_number": 9
+        }
+    ]
+}
