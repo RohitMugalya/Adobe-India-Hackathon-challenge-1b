@@ -23,44 +23,62 @@ import warnings
 warnings.filterwarnings("ignore")
 
 class PDFAnalyzer:
-    def __init__(self, model_name="facebook/bart-large", max_workers=4):
-        self.model_name = model_name
+    def __init__(self, max_workers=4):
+        self.model_name = "facebook/bart-base"
         self.max_workers = max_workers
         self.print_lock = Lock()
-        self.models_dir = Path("models")
-        self.models_dir.mkdir(exist_ok=True)
+        
+        # Hardcoded local model paths for offline usage
+        self.bart_model_path = "models/models--facebook--bart-base/snapshots/aadd2ab0ae0c8268c7c9693540e9904811f36177"
+        self.similarity_model_path = "models/sentence_transformers/models--sentence-transformers--all-mpnet-base-v2/snapshots/12e86a3c702fc3c50205a8db88f0ec7c0b6b94a0"
+        self.cross_encoder_path = "models/sentence_transformers/models--cross-encoder--ms-marco-MiniLM-L-6-v2"
+        
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         print(f"🔧 Using device: {self.device}")
         self._load_models()
 
     def _load_models(self):
-        """Load all required models with improved error handling"""
-        print(f"📥 Loading models...")
+        """Load all required models from local paths - OFFLINE ONLY"""
+        print(f"📥 Loading models from local paths...")
         try:
-            # Text generation model
+            # Check if local model paths exist
+            if not os.path.exists(self.bart_model_path):
+                print(f"❌ BART model not found at: {self.bart_model_path}")
+                sys.exit(1)
+            if not os.path.exists(self.similarity_model_path):
+                print(f"❌ Similarity model not found at: {self.similarity_model_path}")
+                sys.exit(1)
+            
+            # Load BART model from local path
+            print(f"Loading BART from: {self.bart_model_path}")
             self.tokenizer = AutoTokenizer.from_pretrained(
-                self.model_name,
-                cache_dir=str(self.models_dir)
+                self.bart_model_path,
+                local_files_only=True
             )
             self.model = AutoModelForSeq2SeqLM.from_pretrained(
-                self.model_name,
-                cache_dir=str(self.models_dir),
-                torch_dtype=torch.float16 if self.device == "cuda" else torch.float32)
+                self.bart_model_path,
+                local_files_only=True,
+                torch_dtype=torch.float16 if self.device == "cuda" else torch.float32
+            )
             
             if self.tokenizer.pad_token is None:
                 self.tokenizer.pad_token = self.tokenizer.eos_token
             if self.device == "cuda":
                 self.model = self.model.to("cuda")
 
-            # Improved similarity models
-            self.bi_encoder = SentenceTransformer(
-                'all-mpnet-base-v2',
-                cache_folder=str(self.models_dir / "sentence_transformers"))
-            self.cross_encoder = CrossEncoder(
-                'cross-encoder/ms-marco-MiniLM-L-6-v2',
-                device=self.device)
+            # Load similarity models from local paths
+            print(f"Loading similarity model from: {self.similarity_model_path}")
+            self.bi_encoder = SentenceTransformer(self.similarity_model_path)
             
-            print(f"✅ Models loaded successfully")
+            # For cross-encoder, check if path exists, otherwise skip
+            if os.path.exists(self.cross_encoder_path):
+                print(f"Loading cross-encoder from: {self.cross_encoder_path}")
+                self.cross_encoder = CrossEncoder(self.cross_encoder_path, device=self.device)
+            else:
+                print("⚠️ Cross-encoder not found, using bi-encoder only")
+                self.cross_encoder = None
+            
+            print(f"✅ Models loaded successfully from local paths")
         except Exception as e:
             print(f"❌ Error loading models: {e}")
             sys.exit(1)
@@ -143,7 +161,7 @@ class PDFAnalyzer:
         return sorted(potential_titles, key=len, reverse=True)[:3] if potential_titles else []
 
     def rank_documents(self, documents: List[Dict], persona: str, task: str) -> Dict[str, int]:
-        """Hybrid document ranking with bi-encoder + cross-encoder"""
+        """Hybrid document ranking with bi-encoder + cross-encoder (if available)"""
         # 1. First-pass retrieval with bi-encoder
         doc_embeddings = self._get_document_embeddings(documents)
         task_embedding = self.bi_encoder.encode(
@@ -159,26 +177,30 @@ class PDFAnalyzer:
             key=lambda x: x[1],
             reverse=True)
         
-        # 4. Rerank top candidates with cross-encoder
-        top_n = min(10, len(documents))  # Rerank top 10 or all if fewer
-        pairs = [
-            (f"{persona} needs to {task}", 
-             self._get_document_text(documents[idx]))
-            for idx, _ in ranked_docs[:top_n]
-        ]
-        rerank_scores = self.cross_encoder.predict(pairs)
-        
-        # 5. Combine scores (60% cross-encoder, 40% bi-encoder)
-        final_scores = []
-        for i in range(len(ranked_docs)):
-            if i < top_n:
-                combined = 0.6 * rerank_scores[i] + 0.4 * ranked_docs[i][1]
-            else:
-                combined = ranked_docs[i][1]  # Use original score for lower-ranked docs
-            final_scores.append((ranked_docs[i][0], combined))
-        
-        # Create final ranking
-        final_ranking = sorted(final_scores, key=lambda x: x[1], reverse=True)
+        # 4. If cross-encoder is available, rerank top candidates
+        if self.cross_encoder is not None:
+            top_n = min(10, len(documents))  # Rerank top 10 or all if fewer
+            pairs = [
+                (f"{persona} needs to {task}", 
+                 self._get_document_text(documents[idx]))
+                for idx, _ in ranked_docs[:top_n]
+            ]
+            rerank_scores = self.cross_encoder.predict(pairs)
+            
+            # 5. Combine scores (60% cross-encoder, 40% bi-encoder)
+            final_scores = []
+            for i in range(len(ranked_docs)):
+                if i < top_n:
+                    combined = 0.6 * rerank_scores[i] + 0.4 * ranked_docs[i][1]
+                else:
+                    combined = ranked_docs[i][1]  # Use original score for lower-ranked docs
+                final_scores.append((ranked_docs[i][0], combined))
+            
+            # Create final ranking
+            final_ranking = sorted(final_scores, key=lambda x: x[1], reverse=True)
+        else:
+            # Use bi-encoder scores only
+            final_ranking = ranked_docs
         
         return {
             documents[idx]["filename"]: rank+1
@@ -435,10 +457,9 @@ Provide a concise 1-2 sentence summary focusing only on information that would h
 
 def main():
     total_start = datetime.now()
-    parser = argparse.ArgumentParser(description="Advanced PDF Analysis Tool")
+    parser = argparse.ArgumentParser(description="Advanced PDF Analysis Tool - Offline Version")
     parser.add_argument("collection", help="Path to collection directory")
     parser.add_argument("--workers", "-w", type=int, default=4, help="Number of parallel workers")
-    parser.add_argument("--model", "-m", default="facebook/bart-large", help="HuggingFace model name")
     args = parser.parse_args()
     
     if not os.path.exists(args.collection):
@@ -446,12 +467,13 @@ def main():
         return
         
     print(f"🚀 Starting analysis for {args.collection}")
-    analyzer = PDFAnalyzer(model_name=args.model, max_workers=args.workers)
+    print(f"📱 Using hardcoded models: facebook/bart-base + all-mpnet-base-v2")
+    analyzer = PDFAnalyzer(max_workers=args.workers)
     analyzer.process_collection(args.collection)
     
     total_time = (datetime.now() - total_start).total_seconds()
     print(f"\n🎉 Analysis completed in {total_time:.2f} seconds")
-    print(f"🤖 Model: {args.model}")
+    print(f"🤖 Model: facebook/bart-base")
     print(f"⚡ Workers: {args.workers}")
 
 if __name__ == "__main__":
