@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Advanced PDF Analysis Tool with Robust Error Handling
 """
@@ -7,6 +6,7 @@ import json
 import os
 import sys
 import argparse
+import multiprocessing
 from datetime import datetime
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -23,33 +23,30 @@ import warnings
 warnings.filterwarnings("ignore")
 
 class PDFAnalyzer:
-    def __init__(self, max_workers=4):
+    def __init__(self, max_workers=None):
         self.model_name = "facebook/bart-base"
-        self.max_workers = max_workers
+        self.max_workers = max_workers or multiprocessing.cpu_count()
         self.print_lock = Lock()
         
-        # Hardcoded local model paths for offline usage
         self.bart_model_path = "models/models--facebook--bart-base/snapshots/aadd2ab0ae0c8268c7c9693540e9904811f36177"
         self.similarity_model_path = "models/sentence_transformers/models--sentence-transformers--all-mpnet-base-v2/snapshots/12e86a3c702fc3c50205a8db88f0ec7c0b6b94a0"
         self.cross_encoder_path = "models/sentence_transformers/models--cross-encoder--ms-marco-MiniLM-L-6-v2"
         
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        print(f"🔧 Using device: {self.device}")
+        self.device = "cpu"
+        print(f"Using device: {self.device}")
         self._load_models()
 
     def _load_models(self):
-        """Load all required models from local paths - OFFLINE ONLY"""
-        print(f"📥 Loading models from local paths...")
+        """Load all required models from local paths"""
+        print(f"Loading models from local paths...")
         try:
-            # Check if local model paths exist
             if not os.path.exists(self.bart_model_path):
-                print(f"❌ BART model not found at: {self.bart_model_path}")
+                print(f"BART model not found at: {self.bart_model_path}")
                 sys.exit(1)
             if not os.path.exists(self.similarity_model_path):
-                print(f"❌ Similarity model not found at: {self.similarity_model_path}")
+                print(f"Similarity model not found at: {self.similarity_model_path}")
                 sys.exit(1)
             
-            # Load BART model from local path
             print(f"Loading BART from: {self.bart_model_path}")
             self.tokenizer = AutoTokenizer.from_pretrained(
                 self.bart_model_path,
@@ -58,29 +55,25 @@ class PDFAnalyzer:
             self.model = AutoModelForSeq2SeqLM.from_pretrained(
                 self.bart_model_path,
                 local_files_only=True,
-                torch_dtype=torch.float16 if self.device == "cuda" else torch.float32
+                torch_dtype=torch.float32
             )
             
             if self.tokenizer.pad_token is None:
                 self.tokenizer.pad_token = self.tokenizer.eos_token
-            if self.device == "cuda":
-                self.model = self.model.to("cuda")
 
-            # Load similarity models from local paths
             print(f"Loading similarity model from: {self.similarity_model_path}")
             self.bi_encoder = SentenceTransformer(self.similarity_model_path)
             
-            # For cross-encoder, check if path exists, otherwise skip
             if os.path.exists(self.cross_encoder_path):
                 print(f"Loading cross-encoder from: {self.cross_encoder_path}")
-                self.cross_encoder = CrossEncoder(self.cross_encoder_path, device=self.device)
+                self.cross_encoder = CrossEncoder(self.cross_encoder_path, device="cpu")
             else:
-                print("⚠️ Cross-encoder not found, using bi-encoder only")
+                print("Cross-encoder not found, using bi-encoder only")
                 self.cross_encoder = None
             
-            print(f"✅ Models loaded successfully from local paths")
+            print(f"Models loaded successfully from local paths")
         except Exception as e:
-            print(f"❌ Error loading models: {e}")
+            print(f"Error loading models: {e}")
             sys.exit(1)
 
     def extract_text_from_pdf(self, pdf_path: str) -> Dict[int, str]:
@@ -109,8 +102,7 @@ class PDFAnalyzer:
                 max_length=1024,
                 padding=True)
             
-            if self.device == "cuda":
-                inputs = {k: v.to("cuda") for k, v in inputs.items()}
+
                 
             with torch.no_grad():
                 outputs = self.model.generate(
@@ -162,24 +154,20 @@ class PDFAnalyzer:
 
     def rank_documents(self, documents: List[Dict], persona: str, task: str) -> Dict[str, int]:
         """Hybrid document ranking with bi-encoder + cross-encoder (if available)"""
-        # 1. First-pass retrieval with bi-encoder
         doc_embeddings = self._get_document_embeddings(documents)
         task_embedding = self.bi_encoder.encode(
             f"{persona} needs to {task}",
             convert_to_tensor=True)
         
-        # 2. Calculate similarity scores
         similarities = util.pytorch_cos_sim(task_embedding, doc_embeddings)[0]
         
-        # 3. Create initial ranking
         ranked_docs = sorted(
             zip(range(len(documents)), similarities),
             key=lambda x: x[1],
             reverse=True)
         
-        # 4. If cross-encoder is available, rerank top candidates
         if self.cross_encoder is not None:
-            top_n = min(10, len(documents))  # Rerank top 10 or all if fewer
+            top_n = min(10, len(documents))
             pairs = [
                 (f"{persona} needs to {task}", 
                  self._get_document_text(documents[idx]))
@@ -187,19 +175,16 @@ class PDFAnalyzer:
             ]
             rerank_scores = self.cross_encoder.predict(pairs)
             
-            # 5. Combine scores (60% cross-encoder, 40% bi-encoder)
             final_scores = []
             for i in range(len(ranked_docs)):
                 if i < top_n:
                     combined = 0.6 * rerank_scores[i] + 0.4 * ranked_docs[i][1]
                 else:
-                    combined = ranked_docs[i][1]  # Use original score for lower-ranked docs
+                    combined = ranked_docs[i][1]
                 final_scores.append((ranked_docs[i][0], combined))
             
-            # Create final ranking
             final_ranking = sorted(final_scores, key=lambda x: x[1], reverse=True)
         else:
-            # Use bi-encoder scores only
             final_ranking = ranked_docs
         
         return {
@@ -278,7 +263,7 @@ class PDFAnalyzer:
                         "page_number": page_num
                     })
         
-        self.safe_print(f"✓ Completed: {filename} (rank:{doc_rank}, 1 section, {len(subsections)} subsections)")
+        self.safe_print(f"Completed: {filename} (rank:{doc_rank}, 1 section, {len(subsections)} subsections)")
         return section, subsections
 
     def _generate_section_titles(self, filename: str, persona: str, task: str) -> List[str]:
@@ -309,26 +294,23 @@ Provide only the titles, one per line, without numbering."""
 
     def _find_section_page(self, pdf_text: Dict[int, str], section_title: str) -> int:
         """Find page number for a section with improved matching"""
-        # Try exact match first
         for page_num, text in pdf_text.items():
             if section_title.lower() in text.lower():
                 return page_num
         
-        # Try partial match with important keywords
         keywords = [word.lower() for word in section_title.split() if len(word) > 3]
         for page_num, text in pdf_text.items():
             text_lower = text.lower()
             if sum(keyword in text_lower for keyword in keywords) >= len(keywords)/2:
                 return page_num
         
-        return 1  # Fallback to first page
+        return 1
 
     def _is_content_relevant(self, text: str, filename: str, persona: str, task: str) -> bool:
         """Improved relevance detection with hybrid approach"""
         if len(text) < 150:
             return False
             
-        # Check for task-related keywords
         task_keywords = [
             'travel', 'trip', 'itinerary', 'plan', 'visit', 
             'destination', 'activity', 'guide', 'recommend'
@@ -337,7 +319,6 @@ Provide only the titles, one per line, without numbering."""
         if any(keyword in text_lower for keyword in task_keywords):
             return True
             
-        # Ask the model if no keywords found
         prompt = f"""Is this content from "{filename}" relevant for a {persona} working on {task}?
 Content: {text[:500]}
 Answer only YES or NO."""
@@ -347,7 +328,6 @@ Answer only YES or NO."""
 
     def _extract_key_content(self, text: str, filename: str, persona: str, task: str) -> str:
         """Enhanced content extraction with fallbacks"""
-        # First try to extract actionable information
         actionable = []
         for line in text.split('\n'):
             line = line.strip()
@@ -358,7 +338,6 @@ Answer only YES or NO."""
         if actionable:
             return " ".join(actionable[:3])
         
-        # Otherwise generate a focused summary
         doc_type = self._get_document_type(filename)
         prompt = f"""Summarize the most relevant information from this "{doc_type}" document content for a {persona} working on {task}:
 {text[:1000]}
@@ -399,11 +378,9 @@ Provide a concise 1-2 sentence summary focusing only on information that would h
             print(f"PDF directory not found: {pdf_dir}")
             return
             
-        # Rank documents by importance
-        print("🔍 Determining document importance ranking...")
+        print("Determining document importance ranking...")
         doc_ranking = self.rank_documents(documents, persona, task)
         
-        # Process documents in parallel
         print(f"Using {self.max_workers} parallel workers")
         all_sections = []
         all_subsections = []
@@ -416,7 +393,7 @@ Provide a concise 1-2 sentence summary focusing only on information that would h
                     pdf_dir,
                     persona,
                     task,
-                    doc_ranking.get(doc["filename"], len(documents) + 1)  # Fixed KeyError
+                    doc_ranking.get(doc["filename"], len(documents) + 1)
                 ): doc for doc in documents
             }
             
@@ -451,30 +428,29 @@ Provide a concise 1-2 sentence summary focusing only on information that would h
         with open(output_file, 'w') as f:
             json.dump(output_data, f, indent=4)
         
-        print(f"\n✓ Output saved to: {output_file}")
-        print(f"✓ Extracted {len(all_sections)} sections")
-        print(f"✓ Generated {len(all_subsections)} subsection analyses")
+        print(f"\nOutput saved to: {output_file}")
+        print(f"Extracted {len(all_sections)} sections")
+        print(f"Generated {len(all_subsections)} subsection analyses")
 
 def main():
     total_start = datetime.now()
     parser = argparse.ArgumentParser(description="Advanced PDF Analysis Tool - Offline Version")
     parser.add_argument("collection", help="Path to collection directory")
-    parser.add_argument("--workers", "-w", type=int, default=4, help="Number of parallel workers")
     args = parser.parse_args()
     
     if not os.path.exists(args.collection):
         print(f"Collection not found: {args.collection}")
         return
         
-    print(f"🚀 Starting analysis for {args.collection}")
-    print(f"📱 Using hardcoded models: facebook/bart-base + all-mpnet-base-v2")
-    analyzer = PDFAnalyzer(max_workers=args.workers)
+    print(f"Starting analysis for {args.collection}")
+    print(f"Using hardcoded models: facebook/bart-base + all-mpnet-base-v2")
+    analyzer = PDFAnalyzer()
     analyzer.process_collection(args.collection)
     
     total_time = (datetime.now() - total_start).total_seconds()
-    print(f"\n🎉 Analysis completed in {total_time:.2f} seconds")
-    print(f"🤖 Model: facebook/bart-base")
-    print(f"⚡ Workers: {args.workers}")
+    print(f"\nAnalysis completed in {total_time:.2f} seconds")
+    print(f"Model: facebook/bart-base")
+    print(f"Workers: {analyzer.max_workers}")
 
 if __name__ == "__main__":
     main()
