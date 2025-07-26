@@ -1,0 +1,38 @@
+# Git files
+.git
+.gitignore
+
+# Python cache
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+.pytest_cache
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Collection directories (will be mounted)
+Collection*/
+
+# Documentation (except required files)
+*.md
+!approach_explanation.md
+
+# Other files not needed in container
+pdf_analyzer.py
+run_analysis.py

@@ -64,7 +64,8 @@ Challenge_1b/
 ## Installation and Setup
 
 ### Prerequisites
-- **Python 3.7+**
+- **Python 3.11.4** (recommended for optimal performance)
+- **Docker** (for containerized deployment)
 - **Internet connection** (for initial model download only)
 
 ### Step 1: Install Dependencies
@@ -201,9 +202,193 @@ python model_init.py --force
 - The system automatically uses all CPU cores
 - Processing time depends on document count and CPU speed
 
+## Docker Deployment (Adobe India Hackathon 2025 - Round 1B)
+
+### Quick Start with Docker
+
+#### 1. Build the Docker Image
+```bash
+# Build the Docker image for AMD64 architecture
+docker build --platform linux/amd64 -t pdf-analyzer:round1b .
+```
+
+#### 2. Prepare Input Directory
+Create an input directory with your collections:
+```bash
+mkdir -p input/Collection1/PDFs
+mkdir -p input/Collection2/PDFs
+mkdir -p output
+```
+
+#### 3. Run the Container
+```bash
+# Run the container with input/output volume mounts and no network access
+docker run --rm \
+  -v $(pwd)/input:/app/input \
+  -v $(pwd)/output:/app/output \
+  --network none \
+  pdf-analyzer:round1b
+```
+
+### Input Directory Structure
+The input directory should contain collection folders, each with:
+```
+input/
+├── Collection1/
+│   ├── challenge1b_input.json      # Required: Contains persona and task
+│   └── PDFs/                       # Required: Contains PDF documents
+│       ├── document1.pdf
+│       ├── document2.pdf
+│       └── document3.pdf
+├── Collection2/
+│   ├── challenge1b_input.json
+│   └── PDFs/
+│       ├── guide1.pdf
+│       └── guide2.pdf
+└── Collection3/
+    ├── challenge1b_input.json
+    └── PDFs/
+        └── manual.pdf
+```
+
+### Sample Input JSON Format
+Each collection must have a `challenge1b_input.json` file:
+```json
+{
+  "challenge_info": {
+    "challenge_id": "round_1b_002",
+    "test_case_name": "travel_planning"
+  },
+  "documents": [
+    {"filename": "document1.pdf", "title": "Travel Guide"},
+    {"filename": "document2.pdf", "title": "City Information"}
+  ],
+  "persona": {"role": "Travel Planner"},
+  "job_to_be_done": {"task": "Plan a 4-day trip for 10 college friends"}
+}
+```
+
+### Output Structure
+The container generates output files in the output directory:
+```
+output/
+├── Collection1_output.json         # Results for Collection1
+├── Collection2_output.json         # Results for Collection2
+└── Collection3_output.json         # Results for Collection3
+```
+
+### Sample Output JSON Format
+```json
+{
+  "metadata": {
+    "input_documents": ["document1.pdf", "document2.pdf"],
+    "persona": "Travel Planner",
+    "job_to_be_done": "Plan a 4-day trip for 10 college friends",
+    "processing_timestamp": "2025-07-28T10:30:45.123456",
+    "model_used": "facebook/bart-base",
+    "similarity_model": "all-mpnet-base-v2 + cross-encoder"
+  },
+  "extracted_sections": [
+    {
+      "document": "document1.pdf",
+      "section_title": "Travel Destinations",
+      "importance_rank": 1,
+      "page_number": 2
+    }
+  ],
+  "subsection_analysis": [
+    {
+      "document": "document1.pdf",
+      "refined_text": "Detailed analysis of travel destinations...",
+      "page_number": 2
+    }
+  ]
+}
+```
+
+### Hackathon Compliance (Round 1B Requirements)
+
+#### ✅ Technical Constraints
+- **Architecture**: AMD64 (x86_64) compatible
+- **CPU Only**: No GPU dependencies, optimized for CPU processing
+- **Model Size**: <1GB total (BART-base ~500MB + all-mpnet-base-v2 ~420MB)
+- **Offline Operation**: No network access required after build
+- **Processing Time**: <60 seconds per collection (3-5 documents)
+- **Memory Usage**: Optimized for 16GB RAM systems
+- **CPU Cores**: Automatically uses all 8 available CPU cores
+
+#### ✅ Docker Requirements
+- **Platform**: `--platform linux/amd64` compatible
+- **Network**: Runs with `--network none` (offline)
+- **Volumes**: Input/output directory mounting
+- **Base Image**: python:3.11.4-slim for optimal performance
+
+#### ✅ Execution Compliance
+```bash
+# Expected build command
+docker build --platform linux/amd64 -t mysolutionname:somerandomidentifier .
+
+# Expected run command
+docker run --rm \
+  -v $(pwd)/input:/app/input \
+  -v $(pwd)/output:/app/output \
+  --network none \
+  mysolutionname:somerandomidentifier
+```
+
+### Container Specifications
+- **Base Image**: python:3.11.4-slim (AMD64)
+- **Python Version**: 3.11.4 (latest stable)
+- **Models**: Pre-downloaded during build (offline ready)
+- **Dependencies**: All Python packages included in container
+- **Working Directory**: /app
+- **Input Mount Point**: /app/input
+- **Output Mount Point**: /app/output
+- **Execution Script**: docker_run.py (automatic processing)
+
+### Performance Optimization
+- **Parallel Processing**: Utilizes all available CPU cores
+- **Memory Efficient**: Loads models once, processes multiple collections
+- **Fast Startup**: Models pre-cached during build
+- **Optimized Libraries**: Uses CPU-optimized versions of PyTorch and Transformers
+
+### Testing Your Setup
+Use the provided test script to verify your Docker setup:
+```bash
+# Create test environment
+python test_docker.py
+
+# Build and test
+./build_docker.sh
+
+# Run test
+docker run --rm \
+  -v $(pwd)/test_input:/app/input \
+  -v $(pwd)/test_output:/app/output \
+  --network none \
+  pdf-analyzer:round1b
+```
+
+### Troubleshooting
+
+#### Build Issues
+- Ensure Docker supports AMD64 platform
+- Check internet connection for model downloads during build
+- Verify sufficient disk space (>2GB for models and dependencies)
+
+#### Runtime Issues
+- Ensure input directory has correct structure
+- Check that PDF files are readable and not corrupted
+- Verify output directory has write permissions
+
+#### Performance Issues
+- Container automatically uses all available CPU cores
+- Processing time scales with document count and complexity
+- Memory usage peaks during model loading (~2-3GB)
+
 ---
 
-**Note**: This solution uses state-of-the-art transformer models with semantic similarity analysis to provide accurate, persona-specific PDF analysis completely offline.
+**Note**: This solution uses state-of-the-art transformer models with semantic similarity analysis to provide accurate, persona-specific PDF analysis completely offline. Built for Adobe India Hackathon 2025 - Round 1B.
 
 ---
 

@@ -7,6 +7,7 @@ Downloads and caches required models for offline usage
 import os
 import sys
 from pathlib import Path
+import torch
 from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 from sentence_transformers import SentenceTransformer, CrossEncoder
 
@@ -28,7 +29,8 @@ def download_models():
         )
         model = AutoModelForSeq2SeqLM.from_pretrained(
             "facebook/bart-base",
-            cache_dir=str(models_dir)
+            cache_dir=str(models_dir),
+            torch_dtype=torch.float32  # Ensure CPU compatibility
         )
         print("   BART model downloaded successfully")
         
@@ -39,11 +41,12 @@ def download_models():
         
         bi_encoder = SentenceTransformer(
             'all-mpnet-base-v2',
-            cache_folder=str(sentence_models_dir)
+            cache_folder=str(sentence_models_dir),
+            device='cpu'  # Ensure CPU usage
         )
         print("   Sentence transformer model downloaded successfully")
         
-        # Download cross-encoder model (optional)
+        # Download cross-encoder model (optional, skip if size constraints)
         print("\n3. Downloading cross-encoder model...")
         try:
             cross_encoder = CrossEncoder(
@@ -58,22 +61,39 @@ def download_models():
         print("\nModel initialization completed successfully!")
         print(f"Models cached in: {models_dir.absolute()}")
         
-        # Verify model paths
-        print("\nVerifying model paths...")
+        # Verify model paths and check sizes
+        print("\nVerifying model paths and sizes...")
+        total_size = 0
+        
         bart_snapshots = models_dir / "models--facebook--bart-base" / "snapshots"
         if bart_snapshots.exists():
             snapshots = list(bart_snapshots.iterdir())
             if snapshots:
                 print(f"   BART model snapshot: {snapshots[0].name}")
+                # Calculate size
+                for file in snapshots[0].rglob('*'):
+                    if file.is_file():
+                        total_size += file.stat().st_size
         
         sentence_snapshots = sentence_models_dir / "models--sentence-transformers--all-mpnet-base-v2" / "snapshots"
         if sentence_snapshots.exists():
             snapshots = list(sentence_snapshots.iterdir())
             if snapshots:
                 print(f"   Sentence transformer snapshot: {snapshots[0].name}")
+                # Calculate size
+                for file in snapshots[0].rglob('*'):
+                    if file.is_file():
+                        total_size += file.stat().st_size
+        
+        total_size_mb = total_size / (1024 * 1024)
+        print(f"   Total model size: {total_size_mb:.1f} MB")
+        
+        if total_size_mb > 1000:  # 1GB constraint
+            print("   Warning: Model size exceeds 1GB constraint")
+        else:
+            print("   Model size within 1GB constraint")
         
         print("\nModels are ready for offline usage!")
-        print("You can now run: python pdf_analyzer_transformers.py \"Collection 1\"")
         
     except Exception as e:
         print(f"Error during model download: {e}")
