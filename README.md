@@ -142,46 +142,50 @@ docker run --rm \
   pdf-analyzer:round1b
 ```
 
-## Input/Output Format
+## Data Format
 
 ### Input JSON Structure
+Each collection requires a `challenge1b_input.json` file:
 ```json
 {
   "challenge_info": {
-    "challenge_id": "round_1b_XXX",
-    "test_case_name": "specific_test_case"
+    "challenge_id": "round_1b_002",
+    "test_case_name": "travel_planning"
   },
-  "documents": [{"filename": "doc.pdf", "title": "Title"}],
-  "persona": {"role": "User Persona"},
-  "job_to_be_done": {"task": "Use case description"}
+  "documents": [
+    {"filename": "document1.pdf", "title": "Travel Guide"},
+    {"filename": "document2.pdf", "title": "City Information"}
+  ],
+  "persona": {"role": "Travel Planner"},
+  "job_to_be_done": {"task": "Plan a 4-day trip for 10 college friends"}
 }
 ```
 
 ### Output JSON Structure
+The system generates `{CollectionName}_output.json` files:
 ```json
 {
   "metadata": {
-    "input_documents": ["list of all input documents"],
-    "persona": "User Persona",
-    "job_to_be_done": "Task description",
+    "input_documents": ["document1.pdf", "document2.pdf"],
+    "persona": "Travel Planner",
+    "job_to_be_done": "Plan a 4-day trip for 10 college friends",
+    "processing_timestamp": "2025-07-28T10:30:45.123456",
     "model_used": "facebook/bart-base",
-    "similarity_model": "all-mpnet-base-v2 + cross-encoder",
-    "device": "cpu",
-    "parallel_workers": 8
+    "similarity_model": "all-mpnet-base-v2 + cross-encoder"
   },
   "extracted_sections": [
     {
-      "document": "relevant_doc.pdf",
-      "section_title": "Most Important Section",
+      "document": "document1.pdf",
+      "section_title": "Travel Destinations",
       "importance_rank": 1,
-      "page_number": 1
+      "page_number": 2
     }
   ],
   "subsection_analysis": [
     {
-      "document": "relevant_doc.pdf",
-      "refined_text": "Detailed content analysis...",
-      "page_number": 1
+      "document": "document1.pdf",
+      "refined_text": "Detailed analysis of travel destinations...",
+      "page_number": 2
     }
   ]
 }
@@ -209,42 +213,19 @@ docker run --rm \
 - Thread-safe processing with concurrent document analysis
 - Optimized for CPU-only environments
 
-## Output Files
+## System Capabilities
 
-The tool generates `challenge1b_output_transformers.json` in each collection directory containing:
-- **extracted_sections**: One entry per relevant document (no duplicates)
-- **subsection_analysis**: Detailed content analysis for relevant documents only
-- **metadata**: Processing information and model details
-
-## Offline Operation
-
-After initial setup, the system runs completely offline:
-- All models cached in `models/` directory
-- No internet connection required for analysis
-- Portable across different machines
-
-## Performance
-
+### Performance Characteristics
 - **CPU Optimized**: Uses all available cores automatically
 - **Memory Efficient**: Loads models once, processes multiple documents
 - **Fast Processing**: Parallel document analysis with semantic filtering
+- **Offline Operation**: No internet required after initial setup
 - **Scalable**: Handles collections of any size
 
-## Troubleshooting
-
-### Models Not Found
-```bash
-# Re-download models
-python model_init.py --force
-```
-
-### Memory Issues
-- Ensure sufficient RAM (minimum 4GB recommended)
-- Close other applications during processing
-
-### Slow Performance
-- The system automatically uses all CPU cores
-- Processing time depends on document count and CPU speed
+### Output Quality
+- **extracted_sections**: One entry per relevant document (no duplicates)
+- **subsection_analysis**: Detailed content analysis for relevant documents only
+- **metadata**: Processing information and model details
 
 ## Docker Deployment (Adobe India Hackathon 2025 - Round 1B)
 
@@ -274,8 +255,7 @@ docker run --rm \
   pdf-analyzer:round1b
 ```
 
-### Input Directory Structure
-The input directory should contain collection folders, each with:
+### Docker Input Structure
 ```
 input/
 ├── Collection1/
@@ -289,65 +269,13 @@ input/
 │   └── PDFs/
 │       ├── guide1.pdf
 │       └── guide2.pdf
-└── Collection3/
-    ├── challenge1b_input.json
-    └── PDFs/
-        └── manual.pdf
 ```
 
-### Sample Input JSON Format
-Each collection must have a `challenge1b_input.json` file:
-```json
-{
-  "challenge_info": {
-    "challenge_id": "round_1b_002",
-    "test_case_name": "travel_planning"
-  },
-  "documents": [
-    {"filename": "document1.pdf", "title": "Travel Guide"},
-    {"filename": "document2.pdf", "title": "City Information"}
-  ],
-  "persona": {"role": "Travel Planner"},
-  "job_to_be_done": {"task": "Plan a 4-day trip for 10 college friends"}
-}
-```
-
-### Output Structure
-The container generates output files in the output directory:
+### Docker Output Structure
 ```
 output/
 ├── Collection1_output.json         # Results for Collection1
 ├── Collection2_output.json         # Results for Collection2
-└── Collection3_output.json         # Results for Collection3
-```
-
-### Sample Output JSON Format
-```json
-{
-  "metadata": {
-    "input_documents": ["document1.pdf", "document2.pdf"],
-    "persona": "Travel Planner",
-    "job_to_be_done": "Plan a 4-day trip for 10 college friends",
-    "processing_timestamp": "2025-07-28T10:30:45.123456",
-    "model_used": "facebook/bart-base",
-    "similarity_model": "all-mpnet-base-v2 + cross-encoder"
-  },
-  "extracted_sections": [
-    {
-      "document": "document1.pdf",
-      "section_title": "Travel Destinations",
-      "importance_rank": 1,
-      "page_number": 2
-    }
-  ],
-  "subsection_analysis": [
-    {
-      "document": "document1.pdf",
-      "refined_text": "Detailed analysis of travel destinations...",
-      "page_number": 2
-    }
-  ]
-}
 ```
 
 ### Hackathon Compliance (Round 1B Requirements)
@@ -415,25 +343,13 @@ docker run --rm \
 
 ### Troubleshooting
 
-#### Build Issues
-- Ensure Docker supports AMD64 platform
-- Check internet connection for model downloads during build
-- Verify sufficient disk space (>2GB for models and dependencies)
-
-#### Runtime Issues
-- Ensure input directory has correct structure
-- Check that PDF files are readable and not corrupted
-- Verify output directory has write permissions
-
-#### Performance Issues
-- Container automatically uses all available CPU cores
-- Processing time scales with document count and complexity
-- Memory usage peaks during model loading (~2-3GB)
+#### Common Issues
+- **Build Issues**: Ensure Docker supports AMD64 platform and sufficient disk space (>2GB)
+- **Runtime Issues**: Verify input directory structure and PDF file readability
+- **Performance Issues**: Processing time scales with document count and complexity
+- **Memory Issues**: Ensure minimum 4GB RAM, close other applications during processing
+- **Model Issues**: Re-download models with `python model_init.py --force`
 
 ---
 
-**Note**: This solution uses state-of-the-art transformer models with semantic similarity analysis to provide accurate, persona-specific PDF analysis completely offline. Built for Adobe India Hackathon 2025 - Round 1B.
-
----
-
-**Note**: This solution uses the official Ollama Python library with the gemma3:1b model to analyze PDFs based on specific personas and tasks, generating structured JSON outputs for each collection. 
+**Note**: This solution uses transformer models with semantic similarity analysis for accurate, persona-specific PDF analysis. Built for Adobe India Hackathon 2025 - Round 1B. 
